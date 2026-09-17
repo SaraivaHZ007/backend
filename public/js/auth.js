@@ -57,7 +57,8 @@ document.getElementById("form-cadastro").addEventListener("submit", async (e) =>
     const email = document.getElementById("cad-email").value;
     const senha = document.getElementById("cad-senha").value;
     const papel = document.querySelector('input[name="papel"]:checked').value;
-    const dados = await api.post("/auth/registrar", { nome, email, senha, papel });
+    const codigo_convite = document.getElementById("cad-convite").value;
+    const dados = await api.post("/auth/registrar", { nome, email, senha, papel, codigo_convite });
     entrarNaConta(dados);
   } catch (err) {
     mostrarErro("erro-cadastro", err.message);
@@ -65,6 +66,17 @@ document.getElementById("form-cadastro").addEventListener("submit", async (e) =>
     alternarCarregando("btn-cadastro", false, "Criar conta");
   }
 });
+
+// Se a pessoa abriu um link de convite (ex: seusite.com/?convite=ABC123DE),
+// já leva direto pra tela de cadastro com o código preenchido.
+(function preencherConviteDaURL() {
+  const codigo = new URLSearchParams(window.location.search).get("convite");
+  if (codigo) {
+    document.getElementById("tela-login").classList.add("oculto");
+    document.getElementById("tela-cadastro").classList.remove("oculto");
+    document.getElementById("cad-convite").value = codigo.toUpperCase();
+  }
+})();
 
 function entrarNaConta({ token, usuario }) {
   localStorage.setItem("token", token);

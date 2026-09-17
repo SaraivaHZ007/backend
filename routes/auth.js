@@ -8,6 +8,13 @@ const asyncHandler = require("../middleware/asyncHandler");
 const router = express.Router();
 
 const CORES_DISPONIVEIS = ["#7C6FF0", "#FF6B6B", "#14B8A6", "#FFC857", "#4C6EF5", "#F783AC"];
+const CARACTERES_CONVITE = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0/O e 1/I, pra não confundir
+
+function gerarCodigoConvite() {
+  let codigo = "";
+  for (let i = 0; i < 8; i++) codigo += CARACTERES_CONVITE[Math.floor(Math.random() * CARACTERES_CONVITE.length)];
+  return codigo;
+}
 
 function gerarToken(usuario) {
   return jwt.sign(
@@ -18,7 +25,7 @@ function gerarToken(usuario) {
 }
 
 router.post("/registrar", asyncHandler(async (req, res) => {
-  const { nome, email, senha, papel } = req.body;
+  const { nome, email, senha, papel, codigo_convite } = req.body;
 
   if (!nome || !email || !senha || !papel) {
     return res.status(400).json({ erro: "Preencha nome, email, senha e papel." });
@@ -35,12 +42,36 @@ router.post("/registrar", asyncHandler(async (req, res) => {
     return res.status(409).json({ erro: "Já existe uma conta com esse email." });
   }
 
+  // Ninguém tem conta ainda? Essa pessoa vira a primeira coordenadora, sem precisar de convite.
+  const { total } = await db.prepare("SELECT COUNT(*) AS total FROM usuarios").get();
+  let papelFinal = papel;
+  let convite = null;
+
+  if (total > 0) {
+    if (!codigo_convite || !codigo_convite.trim()) {
+      return res.status(400).json({ erro: "Você precisa de um código de convite para criar uma conta. Peça para um coordenador da sua escola." });
+    }
+    convite = await db.prepare("SELECT * FROM convites WHERE codigo = ?").get(codigo_convite.trim().toUpperCase());
+    if (!convite) {
+      return res.status(400).json({ erro: "Código de convite inválido." });
+    }
+    if (convite.usado_por) {
+      return res.status(400).json({ erro: "Esse código de convite já foi usado." });
+    }
+  } else {
+    papelFinal = "coordenador";
+  }
+
   const senhaHash = bcrypt.hashSync(senha, 10);
   const cor = CORES_DISPONIVEIS[Math.floor(Math.random() * CORES_DISPONIVEIS.length)];
 
   const resultado = await db
     .prepare("INSERT INTO usuarios (nome, email, senha_hash, papel, cor) VALUES (?, ?, ?, ?, ?)")
-    .run(nome.trim(), email.toLowerCase().trim(), senhaHash, papel, cor);
+    .run(nome.trim(), email.toLowerCase().trim(), senhaHash, papelFinal, cor);
+
+  if (convite) {
+    await db.prepare("UPDATE convites SET usado_por = ?, usado_em = datetime('now') WHERE id = ?").run(resultado.lastInsertRowid, convite.id);
+  }
 
   const usuario = await db.prepare("SELECT id, nome, email, papel, cor FROM usuarios WHERE id = ?").get(resultado.lastInsertRowid);
   const token = gerarToken(usuario);
@@ -116,6 +147,36 @@ router.post("/usuarios/:id/redefinir-senha", autenticar, apenasCoordenador, asyn
 
   const novoHash = bcrypt.hashSync(senha_nova, 10);
   await db.prepare("UPDATE usuarios SET senha_hash = ? WHERE id = ?").run(novoHash, req.params.id);
+  res.json({ ok: true });
+}));
+
+// ---- Convites: só quem tem um código gerado por um coordenador pode se cadastrar ----
+
+router.get("/convites", autenticar, apenasCoordenador, asyncHandler(async (req, res) => {
+  const convites = await db
+    .prepare(
+      `SELECT c.id, c.codigo, c.criado_em, c.usado_em, cu.nome AS criado_por_nome, u.nome AS usado_por_nome
+       FROM convites c
+       JOIN usuarios cu ON cu.id = c.criado_por
+       LEFT JOIN usuarios u ON u.id = c.usado_por
+       ORDER BY c.criado_em DESC`
+    )
+    .all();
+  res.json({ convites });
+}));
+
+router.post("/convites", autenticar, apenasCoordenador, asyncHandler(async (req, res) => {
+  const codigo = gerarCodigoConvite();
+  await db.prepare("INSERT INTO convites (codigo, criado_por) VALUES (?, ?)").run(codigo, req.usuario.id);
+  res.status(201).json({ codigo });
+}));
+
+router.delete("/convites/:id", autenticar, apenasCoordenador, asyncHandler(async (req, res) => {
+  const convite = await db.prepare("SELECT * FROM convites WHERE id = ?").get(req.params.id);
+  if (!convite) return res.status(404).json({ erro: "Convite não encontrado." });
+  if (convite.usado_por) return res.status(400).json({ erro: "Esse convite já foi usado — não é possível removê-lo." });
+
+  await db.prepare("DELETE FROM convites WHERE id = ?").run(req.params.id);
   res.json({ ok: true });
 }));
 

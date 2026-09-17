@@ -156,6 +156,17 @@ async function iniciarBanco() {
     CREATE INDEX IF NOT EXISTS idx_notas_avaliacao ON notas(avaliacao_id);
     CREATE INDEX IF NOT EXISTS idx_chamadas_turma ON chamadas(turma_id, data);
     CREATE INDEX IF NOT EXISTS idx_presencas_chamada ON presencas(chamada_id);
+
+    CREATE TABLE IF NOT EXISTS convites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      codigo TEXT NOT NULL UNIQUE,
+      criado_por INTEGER NOT NULL,
+      usado_por INTEGER,
+      criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+      usado_em TEXT,
+      FOREIGN KEY (criado_por) REFERENCES usuarios(id) ON DELETE CASCADE,
+      FOREIGN KEY (usado_por) REFERENCES usuarios(id) ON DELETE SET NULL
+    );
   `);
 }
 

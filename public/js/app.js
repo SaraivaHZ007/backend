@@ -1285,6 +1285,13 @@ function abrirModalPerfil() {
       </form>
 
       ${estado.usuario.papel === "coordenador" ? `
+      <div id="secao-convites" style="margin-bottom:22px;">
+        <h3 style="font-size:0.9rem; margin-bottom:6px;">${icones.cadeado} Convites de acesso</h3>
+        <div class="legenda" style="margin-bottom:10px;">Só quem tiver um destes códigos consegue criar conta no site. Gere um e envie o link para a pessoa.</div>
+        <button class="btn btn-secundario btn-peq" id="btn-gerar-convite" style="margin-bottom:12px;">${icones.mais} Gerar novo convite</button>
+        <div class="lista-equipe" id="lista-convites"><div class="vazio">Carregando...</div></div>
+      </div>
+
       <div id="secao-equipe">
         <h3 style="font-size:0.9rem; margin-bottom:10px;">${icones.equipe} Equipe</h3>
         <div class="legenda" style="margin-bottom:10px;">Como coordenador(a), você pode redefinir a senha de um professor que a esqueceu.</div>
@@ -1322,7 +1329,74 @@ function abrirModalPerfil() {
     }
   });
 
-  if (estado.usuario.papel === "coordenador") carregarEquipe();
+  if (estado.usuario.papel === "coordenador") {
+    carregarEquipe();
+    carregarConvites();
+    document.getElementById("btn-gerar-convite").addEventListener("click", gerarConvite);
+  }
+}
+
+async function carregarConvites() {
+  try {
+    const { convites } = await api.get("/auth/convites");
+    const container = document.getElementById("lista-convites");
+    if (!container) return;
+
+    if (!convites.length) {
+      container.innerHTML = `<div class="vazio" style="padding:20px;">Nenhum convite gerado ainda.</div>`;
+      return;
+    }
+
+    container.innerHTML = convites.map((c) => `
+      <div class="linha-equipe">
+        <div class="info-membro">
+          <div class="nome-membro" style="font-family:var(--fonte-titulo); letter-spacing:0.05em;">${escaparHtml(c.codigo)}</div>
+          <div class="papel-membro">${c.usado_por_nome ? `Usado por ${escaparHtml(c.usado_por_nome)}` : "Ainda não usado"}</div>
+        </div>
+        ${c.usado_por_nome
+          ? `<span class="selo selo-realizada">Usado</span>`
+          : `<button class="btn btn-icone" title="Copiar link do convite" onclick="copiarLinkConvite('${escaparHtml(c.codigo)}')">${icones.colar}</button>
+             <button class="btn btn-icone" title="Excluir convite" onclick="excluirConvite(${c.id})">${icones.lixeira}</button>`}
+      </div>
+    `).join("");
+  } catch (err) {
+    const container = document.getElementById("lista-convites");
+    if (container) container.innerHTML = `<div class="vazio">${escaparHtml(err.message)}</div>`;
+  }
+}
+
+async function gerarConvite() {
+  try {
+    const { codigo } = await api.post("/auth/convites", {});
+    mostrarToast(`Convite ${codigo} criado.`, "sucesso");
+    await carregarConvites();
+    copiarLinkConvite(codigo);
+  } catch (err) {
+    mostrarToast(err.message, "erro");
+  }
+}
+
+function copiarLinkConvite(codigo) {
+  const link = `${window.location.origin}${window.location.pathname}?convite=${codigo}`;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(link).then(
+      () => mostrarToast("Link do convite copiado!", "sucesso"),
+      () => mostrarToast(`Link: ${link}`, "info")
+    );
+  } else {
+    mostrarToast(`Link: ${link}`, "info");
+  }
+}
+
+async function excluirConvite(id) {
+  if (!(await confirmarAcao("Excluir esse convite? Ele deixa de funcionar."))) return;
+  try {
+    await api.delete(`/auth/convites/${id}`);
+    mostrarToast("Convite excluído.", "sucesso");
+    carregarConvites();
+  } catch (err) {
+    mostrarToast(err.message, "erro");
+  }
 }
 
 async function carregarEquipe() {
